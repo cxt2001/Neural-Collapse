@@ -7,7 +7,8 @@ This project reproduces the Neural Collapse phenomenon observed during neural ne
 To compute and visualize the Neural Collapse (NC) metrics during the training process, use the following command:
 
 ```bash
-python train_cifar.py --epoch 400 --batch_size 64 --gpu 0 --dataset cifar --lr 0.001 --model resnet18
+python train_cifar.py --epoch 400 --batch_size 64 --gpu 0 --dataset cifar --lr 0.005 --model resnet18
+python train_cifar.py --epoch 400 --batch_size 64 --gpu 0 --dataset cifar --lr 0.005 --model vgg11_bn
 ```
 ## Requirements
 * Python 3.10  

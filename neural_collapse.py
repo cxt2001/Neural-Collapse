@@ -68,6 +68,7 @@ class NeuralCollapseMetrics:
 
         # 计算范数的均匀性
         norms = torch.norm(centered_class_means, dim=1)
+        norms = norms / torch.mean(norms)
         norm_variance = torch.var(norms).item()
 
         return cosine_similarity_variance, norm_variance

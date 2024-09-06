@@ -90,14 +90,15 @@ def test(test_data_loader, model, device, logger):
     model.train()
     return acc
 
-def train(train_data_loader, model, criterion, optimizer, scheduler, device, epoch, logger, save_path):
+def train(train_data_loader, test_data_loader, model, criterion, optimizer, scheduler, device, epoch, logger, save_path):
     # 初始化数据存储容器
     nc1_values = []
     nc2_cosine_sim_values = []
     nc2_norm_var_values = []
     nc3_values = []
     nc4_values = []
-    accuracy_values = []
+    train_accuracy_values = []
+    test_accuracy_values = []
     losses = []
     epochs = []
 
@@ -106,7 +107,9 @@ def train(train_data_loader, model, criterion, optimizer, scheduler, device, epo
     data_hook = DataSaverHook(store_output=True)
     penultimate_layer.register_forward_hook(data_hook)
     metrics = NeuralCollapseMetrics(10, num_ftrs, device)
+    best_acc = 0
     for iter in range(epoch):
+        total_loss = 0
         metrics.reset()
         for data, label in train_data_loader:
             data, label = data.to(device), label.to(device)
@@ -116,11 +119,14 @@ def train(train_data_loader, model, criterion, optimizer, scheduler, device, epo
             loss.backward()
             optimizer.step()
             scheduler.step()
+            total_loss += loss.item()
 
             if iter % 5 == 0 or iter == epoch - 1:
                 # get features
                 features = data_hook.output_store.squeeze(-1).squeeze(-1)
                 metrics.update(features, label)
+
+        total_loss /= len(train_data_loader)
 
         if iter % 5 == 0 or iter == epoch - 1:
             # compute neural collapse metrics
@@ -138,7 +144,11 @@ def train(train_data_loader, model, criterion, optimizer, scheduler, device, epo
             nc4 = 1 - nc4 / len(train_data_loader.dataset)
 
             # test accuracy in train dataset
-            acc = test(train_data_loader, model, device, logger)
+            train_acc = test(train_data_loader, model, device, logger)
+            test_acc = test(test_data_loader, model, device, logger)
+            if test_acc > best_acc:
+                best_acc = test_acc
+                torch.save(model.state_dict(), save_path + 'model/best_model.pth')
 
             # save metrics
             nc1_values.append(nc1)
@@ -146,36 +156,39 @@ def train(train_data_loader, model, criterion, optimizer, scheduler, device, epo
             nc2_norm_var_values.append(nc2_norm_var)
             nc3_values.append(nc3)
             nc4_values.append(nc4)
-            accuracy_values.append(acc)
-            losses.append(loss.item())
+            train_accuracy_values.append(train_acc)
+            test_accuracy_values.append(test_acc)
+            losses.append(total_loss)
             epochs.append(iter+1)
 
             # plot and save metrics
-            plot_and_save(epochs, nc1_values, 'NC1', 'NC1', save_path)
-            plot_and_save(epochs, nc2_cosine_sim_values, 'NC2_cosine_sim', 'NC2_cosine_sim', save_path)
-            plot_and_save(epochs, nc2_norm_var_values, 'NC2_norm_var', 'NC2_norm_var', save_path)
-            plot_and_save(epochs, nc3_values, 'NC3', 'NC3', save_path)
-            plot_and_save(epochs, nc4_values, 'NC4', 'NC4', save_path)
-            plot_and_save(epochs, accuracy_values, 'Accuracy', 'Accuracy', save_path)
-            plot_and_save(epochs, losses, 'Loss', 'Loss', save_path)
+            plot_and_save(epochs, nc1_values, 'NC1', 'NC1', save_path + 'fig')
+            plot_and_save(epochs, nc2_cosine_sim_values, 'NC2_cosine_sim', 'NC2_cosine_sim', save_path + 'fig')
+            plot_and_save(epochs, nc2_norm_var_values, 'NC2_norm_var', 'NC2_norm_var', save_path + 'fig')
+            plot_and_save(epochs, nc3_values, 'NC3', 'NC3', save_path + 'fig')
+            plot_and_save(epochs, nc4_values, 'NC4', 'NC4', save_path + 'fig')
+            plot_and_save(epochs, train_accuracy_values, 'Train_Accuracy', 'Train_Accuracy', save_path + 'fig')
+            plot_and_save(epochs, test_accuracy_values, 'Test_Accuracy', 'Test_Accuracy', save_path + 'fig')
+            plot_and_save(epochs, losses, 'Loss', 'Loss', save_path + 'fig')
 
 
-            logger.info('Train Epoch: %d Loss: %.6f, NC1: %.6f, NC2_cosine_sim: %.6f, NC2_norm_var: %.6f, NC3: %.6f, NC4: %.6f, Acc: %.6f' % (iter+1, loss, nc1, nc2_cosine_sim, nc2_norm_var, nc3, nc4, acc))
+            logger.info('Train Epoch: %d Loss: %.6f, NC1: %.6f, NC2_cosine_sim: %.6f, NC2_norm_var: %.6f, NC3: %.6f, NC4: %.6f, Train_acc: %.6f, Test_acc: %.6f' % (iter+1, total_loss, nc1, nc2_cosine_sim, nc2_norm_var, nc3, nc4, train_acc, test_acc))
 
     nc1_values = np.array(nc1_values)
     nc2_cosine_sim_values = np.array(nc2_cosine_sim_values)
     nc2_norm_var_values = np.array(nc2_norm_var_values)
     nc3_values = np.array(nc3_values)
     nc4_values = np.array(nc4_values)
-    accuracy_values = np.array(accuracy_values)
+    train_accuracy_values = np.array(train_accuracy_values)
+    test_accuracy_values = np.array(test_accuracy_values)
     losses = np.array(losses)
 
-    np.savez(task_path + 'metrics/' + 'metrics.npz', nc1=nc1_values, nc2_cosine_sim=nc2_cosine_sim_values, nc2_norm_var=nc2_norm_var_values, nc3=nc3_values, nc4=nc4_values, accuracy=accuracy_values, loss=losses)
+    np.savez(save_path + 'metrics/' + 'metrics.npz', nc1=nc1_values, nc2_cosine_sim=nc2_cosine_sim_values, nc2_norm_var=nc2_norm_var_values, nc3=nc3_values, nc4=nc4_values, accuracy=train_accuracy_values, test_accuracy=test_accuracy_values, loss=losses)
 
 if __name__ == '__main__':
     train_transform = transforms.Compose([
-        # transforms.RandomCrop(32, padding=4),
-        # transforms.RandomHorizontalFlip(),
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
     ])
@@ -197,4 +210,4 @@ if __name__ == '__main__':
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=200)
-    train(train_loader, model, criterion, optimizer, scheduler, device, args.epoch, logger, task_path + 'fig')
+    train(train_loader, test_loader, model, criterion, optimizer, scheduler, device, args.epoch, logger, task_path)
